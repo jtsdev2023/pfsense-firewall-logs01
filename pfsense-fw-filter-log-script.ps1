@@ -419,21 +419,7 @@ function Invoke-WriteMergedArinCIDRBlockInfoToCSVFile {
 # /////////////////////////////////////////////////////////////////////////////////////////////// #
 
 
-# FUNCTION: application step 7 - archive (zip) ARIN API response file
-#           returns nothing
-function Invoke-ArchiveArinAPIResponse {
-    param()
-
-    # archive ARIN API response file
-    Compress-Archive -Path "step-4-arin-json-response.json" `
-        -DestinationPath "step-6-arin-json-response-$(Get-Date -Format "yyyyMMddHHmmss").zip"
-}
-
-
-# /////////////////////////////////////////////////////////////////////////////////////////////// #
-
-
-# FUNCTION: application step 8 - write ARIN CIDR info to text file in tabular format
+# FUNCTION: application step 7 - write ARIN CIDR info to text file in tabular format
 #           returns nothing
 function Invoke-WriteArinCIDRInfoToTextFile {
     param(
@@ -447,8 +433,31 @@ function Invoke-WriteArinCIDRInfoToTextFile {
     $InputArray = $InputArray | Sort-Object -Property NAME
 
     # write ARIN CIDR block info to text file
-    $InputArray | Format-Table -AutoSize | Out-File -FilePath "step-8-arin-cidr-info.txt"
+    $InputArray | Format-Table -AutoSize | Out-File -FilePath "step-7-arin-cidr-info.txt"
 }
+
+
+# /////////////////////////////////////////////////////////////////////////////////////////////// #
+
+
+# FUNCTION: application step 8 - archive (zip) ARIN API response file
+#           returns nothing
+function Invoke-ArchiveArinAPIResponse {
+    param()
+
+    # archive files list
+    $FilesForArchive = @("step-3-filtered-ip-list.txt", 
+        ".\step-4-arin-json-response.json", ".\step-6-arin-cidr-list.csv", 
+        ".\step-7-arin-cidr-info.txt"
+    )
+
+    # archive file name
+    $ArchiveName = "step-8-archive-$(Get-Date -Format "yyyyMMddHHmmss").zip"
+
+    # compress files
+    Compress-Archive -Path $FilesForArchive -DestinationPath $ArchiveName
+}
+
 
 
 ###################################################################################################
@@ -472,8 +481,8 @@ $menuBanner = @"
 "Get ARIN CIDR block info from web API (writes JSON response to file).", #4
 "Read ARIN API JSON info from file (converts JSON to PowerShell object).", #5
 "Write parsed ARIN CIDR info to file.", #6
-"Archive (zip) ARIN API JSON response file.", #7
-"Write ARIN CIDR info to text file in tabular format.", #8
+"Write ARIN CIDR info to text file in tabular format.", #7
+"Archive (zip) ARIN API JSON response file.", #8
 "Automated (runs through all steps and then exits the program).", #9
 "Exit" #10
 )
@@ -537,12 +546,12 @@ while ($true) {
             break
         }
         7 {
-            Invoke-ArchiveArinAPIResponse
+            Invoke-WriteArinCIDRInfoToTextFile -inputArray $MergedArinCIDRBlockInfo
             break
         }
         8 {
-            Invoke-WriteArinCIDRInfoToTextFile -inputArray $MergedArinCIDRBlockInfo
-
+            
+            Invoke-ArchiveArinAPIResponse
             break
         }
         9 {
@@ -568,9 +577,9 @@ while ($true) {
 
             Invoke-WriteMergedArinCIDRBlockInfoToCSVFile -InputArray $MergedArinCIDRBlockInfo
             # 7
-            Invoke-ArchiveArinAPIResponse
-            # 8
             Invoke-WriteArinCIDRInfoToTextFile -InputArray $MergedArinCIDRBlockInfo
+            # 8
+            Invoke-ArchiveArinAPIResponse
 
             return $false | Out-Null
         }
