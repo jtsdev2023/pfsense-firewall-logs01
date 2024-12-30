@@ -1,4 +1,4 @@
-# script to parse PFsense firewall logs
+# script to parse pfSense firewall logs
 
 ###################################################################################################
 #                                           CONSTANTS                                             #
@@ -169,6 +169,7 @@ function Invoke-GetFirewallLogs {
     param()
 
     # get the username
+    [Console]::ForegroundColor = "Yellow"
     $UserName = Read-Host "Enter the username for the firewall"
     # get the firewall IP address
     $FirewallIPAddress = Read-Host "Enter the IP address of the firewall"
@@ -178,6 +179,7 @@ function Invoke-GetFirewallLogs {
     $SCP_COMMAND_STR = "{0}@{1}:/var/log/filter.log*" -f $UserName, $FirewallIPAddress
 
     # scp command - copy log files from firewall to local directory
+    
     scp.exe $SCP_COMMAND_STR "."
         
 }
@@ -341,36 +343,76 @@ function Invoke-ParseArinAPIResponse {
     # parse ARIN API JSON response
     $ArinCidrAndNameList = Invoke-ParseArinCIDRBlock -InputArray $InputArray
 
-    # return list of ARIN API responses filtered to just $_.cidr0_cidrs and $_.name
-    return $ArinCidrAndNameList
+    $ArinCustomObject = $ArinCidrAndNameList | ForEach-Object {
+        [PSCustomObject]@{
+            CIDR = $_[0]
+            LENGTH = $_[1]
+            NAME = $_[2]
+        }
+    }
+
+    # return list of processed and filtered ARIN API responses
+    return $ArinCustomObject
 }
 
 
-# FUNCTION: application step 6.2 - write ARIN CIDR block info to file
+# FUNCTION: application step 6.2 - read in existing ARIN CIDR block info from file
+#           returns PowerShell object
+function Invoke-GetExistingArinCIDRBlockInfoFromCSVFile {
+    # read processed ARIN CIDR block info from existing file
+    param()
+
+    $ExistingArinCIDRBlockInfo = Import-Csv -Path "step-6-arin-cidr-list.csv"
+
+    return $ExistingArinCIDRBlockInfo
+}
+
+
+# FUNCTION: application step 6.3 - merge ARIN CIDR block info from API with
+#           existing ARIN CIDR block info from step 6.1
+#           returns PowerShell object
+function Invoke-MergeArinCIDRBlockInfo {
+    param(
+        [Parameter(Mandatory = $true)]
+        [Array]$InputArray1,
+        [Parameter(Mandatory = $true)]
+        [AllowNull()]
+        [Array]$InputArray2
+    )
+
+    if ($InputArray2 -eq $null) {
+        # if no existing CSV ARIN CIDR block info,
+        # return the ARIN CIDR block info from web API
+        return $InputArray1
+    } else {
+        # merge ARIN CIDR block info from API with existing ARIN CIDR block info
+        $MergedArinCIDRBlockInfo =
+            ( $InputArray1 + $InputArray2 ) | 
+                Select-Object -Property CIDR, LENGTH, NAME -Unique
+
+        # sort ARIN CIDR block info by organization name
+        $MergedArinCIDRBlockInfo = $MergedArinCIDRBlockInfo | Sort-Object -Property NAME
+
+        return $MergedArinCIDRBlockInfo
+    }
+}
+
+
+# FUNCTION: application step 6.4 - write merged ARIN CIDR block info to CSV file
 #           returns nothing
-function Invoke-WriteArinCIDRBlockToFile {
-    # write processed ARIN CIDR block info to file
+function Invoke-WriteMergedArinCIDRBlockInfoToCSVFile {
     param(
         [Parameter(Mandatory = $true)]
         [Array]$InputArray
     )
 
-    # create custom object to use with Format-Table output
-    $CidrList = $InputArray | ForEach-Object {
-        [PSCustomObject]@{
-            CIDR = $_[0];
-            LENGTH = $_[1];
-            NAME = $_[2]
-        }
-    }
+    $InputArray = $InputArray | Select-Object -Property CIDR, LENGTH, NAME -Unique
 
-    # write to file
-    $ArinOutputFile = "step-6-arin-cidr-list.txt"
-    # de-duplicate the list
-    $CidrList = $CidrList | Sort-Object -Unique -Property CIDR, LENGTH
+    # sort ARIN CIDR block info by organization name
+    $InputArray = $InputArray | Sort-Object -Property NAME
 
-    # write to file
-    $CidrList | Sort-Object -Property NAME | Format-Table | Out-File -FilePath $ArinOutputFile
+    # write merged ARIN CIDR block info to CSV file
+    $InputArray | Export-Csv -Path "step-6-arin-cidr-list.csv" -NoTypeInformation
 }
 
 
@@ -388,6 +430,26 @@ function Invoke-ArchiveArinAPIResponse {
 }
 
 
+# /////////////////////////////////////////////////////////////////////////////////////////////// #
+
+
+# FUNCTION: application step 8 - write ARIN CIDR info to text file in tabular format
+#           returns nothing
+function Invoke-WriteArinCIDRInfoToTextFile {
+    param(
+        [Parameter(Mandatory = $true)]
+        [Array]$InputArray
+    )
+
+    $InputArray = $InputArray | Select-Object -Property CIDR, LENGTH, NAME -Unique
+
+    # sort ARIN CIDR block info by organization name
+    $InputArray = $InputArray | Sort-Object -Property NAME
+
+    # write ARIN CIDR block info to text file
+    $InputArray | Format-Table -AutoSize | Out-File -FilePath "step-8-arin-cidr-info.txt"
+}
+
 
 ###################################################################################################
 #                                              MAIN                                               #
@@ -402,31 +464,41 @@ $menuBanner = @"
 
 "@
 
-# cli menu dict
-$CLIMenu = [hashtable]@{
-    1 = "Download filter.log from PFsense firewall."
-    2 = "Parse logs from existing files."
-    3 = "Filter IP addresses from logs."
-    4 = "Get ARIN CIDR block info from web API (writes JSON response to file)."
-    5 = "Read ARIN API JSON info from file (converts JSON to PowerShell object)."
-    6 = "Write parsed ARIN CIDR info to file."
-    7 = "Archive (zip) ARIN API JSON response file."
-    8 = "Automated (runs through all steps and then exits the program)."
-    9 = "Exit"
-}
+# menu options
+[array]$CLIMenu = @(
+"Download pfSense firewall filter logs.", #1
+"Parse logs from existing files.", #2
+"Filter IP addresses from logs.", #3
+"Get ARIN CIDR block info from web API (writes JSON response to file).", #4
+"Read ARIN API JSON info from file (converts JSON to PowerShell object).", #5
+"Write parsed ARIN CIDR info to file.", #6
+"Archive (zip) ARIN API JSON response file.", #7
+"Write ARIN CIDR info to text file in tabular format.", #8
+"Automated (runs through all steps and then exits the program).", #9
+"Exit" #10
+)
+
 
 # cli driven menu
 while ($true) {
     [Console]::Clear()
-    [Console]::ForegroundColor = "Blue"
+    # [Console]::ForegroundColor = "Blue"
 
-    Write-Host -Object $menuBanner
+    Write-Host -Object $menuBanner -ForegroundColor "Magenta"
 
-    $CLIMenu.GetEnumerator() | Sort-Object | ForEach-Object {
-        Write-Host -Object "$($_.Key). $($_.Value)"
+    for ($i = 0; $i -lt $CLIMenu.Length; $i++) {
+        if ($i % 2 -eq 0) {
+            [Console]::ForegroundColor = "White"
+        } else {
+            [Console]::ForegroundColor = "Blue"
+        }
+        Write-Host -Object "$($i + 1). $($CLIMenu[$i])"
     }
+    
 
-    $choice = Read-Host "Enter your choice"
+    [Console]::ForegroundColor = "Magenta"
+    $choice = Read-Host "`nEnter your choice"
+
 
     switch ($choice) {
         1 {
@@ -448,20 +520,32 @@ while ($true) {
             break
         }
         5 {
-            $ArinAPIResponseListFromFile = Invoke-ReadArinAPIInfoFromFile
+            $ArinAPIResponseList = Invoke-ReadArinAPIInfoFromFile
             break
         }
         6 {
-            $ArinCidrAndNameList =
-                Invoke-ParseArinCIDRBlock -InputArray $ArinAPIResponseListFromFile
+            $ArinCidrAndNameList = Invoke-ParseArinAPIResponse `
+                -InputArray $ArinAPIResponseList
 
-            Invoke-WriteArinCIDRBlockToFile -InputArray $ArinCidrAndNameList
+            $ExistingArinCidrList = Invoke-GetExistingArinCIDRBlockInfoFromCSVFile
+
+            $MergedArinCIDRBlockInfo = Invoke-MergeArinCIDRBlockInfo `
+                -InputArray1 $ArinCidrAndNameList -InputArray2 $ExistingArinCidrList
+
+            Invoke-WriteMergedArinCIDRBlockInfoToCSVFile -InputArray $MergedArinCIDRBlockInfo
+
             break
         }
         7 {
             Invoke-ArchiveArinAPIResponse
+            break
         }
         8 {
+            Invoke-WriteArinCIDRInfoToTextFile -inputArray $MergedArinCIDRBlockInfo
+
+            break
+        }
+        9 {
             # 1
             Invoke-GetFirewallLogs
             # 2
@@ -474,15 +558,23 @@ while ($true) {
             # 5
             $ArinAPIResponseListFromFile = Invoke-ReadArinAPIInfoFromFile
             # 6
-            $ArinCidrAndNameList =
-                Invoke-ParseArinCIDRBlock -InputArray $ArinAPIResponseListFromFile
-            Invoke-WriteArinCIDRBlockToFile -InputArray $ArinCidrAndNameList
+            $ArinCidrAndNameList = Invoke-ParseArinAPIResponse `
+                -InputArray $ArinAPIResponseListFromFile
+
+            $ExistingArinCidrList = Invoke-GetExistingArinCIDRBlockInfoFromCSVFile
+
+            $MergedArinCIDRBlockInfo = Invoke-MergeArinCIDRBlockInfo `
+                -InputArray1 $ArinCidrAndNameList -InputArray2 $ExistingArinCidrList
+
+            Invoke-WriteMergedArinCIDRBlockInfoToCSVFile -InputArray $MergedArinCIDRBlockInfo
             # 7
             Invoke-ArchiveArinAPIResponse
+            # 8
+            Invoke-WriteArinCIDRInfoToTextFile -InputArray $MergedArinCIDRBlockInfo
 
             return $false | Out-Null
         }
-        9 {
+        10 {
             return $false | Out-Null
         }
     }
