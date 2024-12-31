@@ -177,3 +177,5 @@ cython_debug/
 *.log
 *.log.*
 *.zip
+*.json
+*.csv
