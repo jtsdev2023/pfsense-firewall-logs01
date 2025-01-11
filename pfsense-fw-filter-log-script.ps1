@@ -180,7 +180,6 @@ function Invoke-GetFirewallLogs {
     $SCP_COMMAND_STR = "{0}@{1}:/var/log/filter.log*" -f $UserName, $FirewallIPAddress
 
     # scp command - copy log files from firewall to local directory
-    
     scp.exe $SCP_COMMAND_STR "."
         
 }
@@ -582,11 +581,6 @@ while ($true) {
         }
         4 {
 
-            # test
-            # $x = get-content "step-3-filtered-ip-list.txt"
-            # write-host $x
-            read-host "pause"
-            #
             $ArinAPIResponseList = Invoke-GetArinIPAddressInfo
             Invoke-WriteArinAPIResponseToFile -InputArray $ArinAPIResponseList
 
