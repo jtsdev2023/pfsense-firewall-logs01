@@ -261,7 +261,7 @@ function Invoke-FilterIPAddresses {
     return $FilteredIPList
 }
 
-# FUNCTION: application step 3.2 - compare new filtered IP address list
+# FUNCTION: application step 3.3 - compare new filtered IP address list
 #           to existing (if exists)
 #           returns difference of new vs. exsting filtered IP address list
 function Invoke-ProcessFilteredIPAddresses {
@@ -271,8 +271,8 @@ function Invoke-ProcessFilteredIPAddresses {
         [Array]$InputArray
     )
 
-    if (Test-Path -Path "step-3-filtered-ip-list.txt") {
-        $ExistingIPFilteredList = Get-Content -Path "step-3-filtered-ip-list.txt"
+    if (Test-Path -Path "step-3-2-existing-filtered-ip-list.txt") {
+        $ExistingIPFilteredList = Get-Content -Path "step-3-2-existing-filtered-ip-list.txt"
     } else {
         $ExistingIPFilteredList = $null
     }
@@ -280,7 +280,8 @@ function Invoke-ProcessFilteredIPAddresses {
 
     if ($ExistingIPFilteredList -eq $null) {
         # write to file
-        Set-Content -Path "step-3-filtered-ip-list.txt" -Value $InputArray
+        Add-Content -Path "step-3-2-existing-filtered-ip-list.txt" -Value $InputArray
+        Set-Content -Path "step-3-3-new-filtered-ip-list.txt" -Value $InputArray
 
     } else {
         $_TmpList = Compare-Object `
@@ -291,7 +292,8 @@ function Invoke-ProcessFilteredIPAddresses {
         if ($_TmpList -ne $null) {
             $NewIPFilteredList = $_TmpList | Foreach-Object { $_[0].InputObject }
 
-            Set-Content -Path "step-3-filtered-ip-list.txt" -Value $NewIPFilteredList
+            Add-Content -Path "step-3-2-existing-filtered-ip-list.txt" -Value $NewIPFilteredList
+            Set-Content -Path "step-3-3-new-filtered-ip-list.txt" -Value $NewIPFilteredList
 
             return $true
 
@@ -310,11 +312,8 @@ function Invoke-ProcessFilteredIPAddresses {
 function Invoke-GetArinIPAddressInfo {
     param()
 
-    # get filtered IP list file location
-    $FilteredIPListFile = "step-3-filtered-ip-list.txt"
-
     # read the filtered IP list file
-    $FilteredIPList = Get-Content -Path $FilteredIPListFile
+    $FilteredIPList = Get-Content -Path "step-3-3-new-filtered-ip-list.txt"
 
     # de-duplicate the input list
     $FilteredIPList = $FilteredIPList | Sort-Object -Unique
@@ -361,7 +360,7 @@ function Invoke-ReadArinAPIInfoFromFile {
     $ArinJsonResponse = Get-Content -Path "step-4-arin-json-response.json" -Raw
 
     # convert JSON to PowerShell object
-    $ArinAPIResponseList = $ArinJsonResponse | ConvertFrom-Json
+    $ArinAPIResponseList = $ArinJsonResponse | ConvertFrom-Json -Depth 100
 
     return $ArinAPIResponseList
 }
@@ -381,11 +380,19 @@ function Invoke-ParseArinAPIResponse {
     # parse ARIN API JSON response
     $ArinCidrAndNameList = Invoke-ParseArinCIDRBlock -InputArray $InputArray
 
-    $ArinCustomObject = $ArinCidrAndNameList | ForEach-Object {
-        [PSCustomObject]@{
-            CIDR = $_[0]
-            LENGTH = $_[1]
-            NAME = $_[2]
+    if ($ArinCidrAndNameList.Count -eq 3) {
+        $ArinCustomObject = [PSCustomObject]@{
+            CIDR = $ArinCidrAndNameList[0]
+            LENGTH = $ArinCidrAndNameList[1]
+            NAME = $ArinCidrAndNameList[2]
+        }
+    } else {
+        $ArinCustomObject = $ArinCidrAndNameList | ForEach-Object {
+            [PSCustomObject]@{
+                CIDR = $_[0]
+                LENGTH = $_[1]
+                NAME = $_[2]
+            }
         }
     }
 
@@ -484,7 +491,7 @@ function Invoke-ArchiveArinAPIResponse {
     param()
 
     # archive files list
-    $FilesForArchive = @("step-3-filtered-ip-list.txt", 
+    $FilesForArchive = @("step-3-2-existing-filtered-ip-list.txt", 
         ".\step-4-arin-json-response.json", ".\step-6-arin-cidr-list.csv", 
         ".\step-7-arin-cidr-info.txt"
     )

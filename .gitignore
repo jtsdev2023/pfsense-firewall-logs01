@@ -173,6 +173,7 @@ cython_debug/
 
 ### CUSTOM ###
 *.backup
+*_backup
 *.txt
 *.log
 *.log.*
