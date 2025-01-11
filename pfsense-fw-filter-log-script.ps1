@@ -176,6 +176,7 @@ function Invoke-GetFirewallLogs {
     
     # string format for scp command
     # example: scp.exe "admin@192.168.1.1:/var/log/filter.log* ."
+    [Console]::ForegroundColor = "White"
     $SCP_COMMAND_STR = "{0}@{1}:/var/log/filter.log*" -f $UserName, $FirewallIPAddress
 
     # scp command - copy log files from firewall to local directory
@@ -237,9 +238,9 @@ function Invoke-ParseFirewallLogs {
 # /////////////////////////////////////////////////////////////////////////////////////////////// #
 
 
-# FUNCTION: application step 3 - filter out RFC 1918 IP addresses, broadcast,
+# FUNCTION: application step 3.1 - filter out RFC 1918 IP addresses, broadcast,
 #           multicast addresses, and APIPA addresses
-#           returns nothing
+#           returns array of filtered IP addresses
 function Invoke-FilterIPAddresses {
     param()
 
@@ -258,10 +259,48 @@ function Invoke-FilterIPAddresses {
         }
     }
 
-    # write to file
-    $OutputFile = "step-3-filtered-ip-list.txt"
+    return $FilteredIPList
+}
 
-    Set-Content -Path $OutputFile -Value $FilteredIPList
+# FUNCTION: application step 3.2 - compare new filtered IP address list
+#           to existing (if exists)
+#           returns difference of new vs. exsting filtered IP address list
+function Invoke-ProcessFilteredIPAddresses {
+    param(
+        # $FilteredIPList
+        [Parameter(Mandatory=$true)]
+        [Array]$InputArray
+    )
+
+    if (Test-Path -Path "step-3-filtered-ip-list.txt") {
+        $ExistingIPFilteredList = Get-Content -Path "step-3-filtered-ip-list.txt"
+    } else {
+        $ExistingIPFilteredList = $null
+    }
+
+
+    if ($ExistingIPFilteredList -eq $null) {
+        # write to file
+        Set-Content -Path "step-3-filtered-ip-list.txt" -Value $InputArray
+
+    } else {
+        $_TmpList = Compare-Object `
+            -ReferenceObject $ExistingIPFilteredList `
+            -DifferenceObject $InputArray
+
+        # new list containing unique IP addresses from existing and new IP lists
+        if ($_TmpList -ne $null) {
+            $NewIPFilteredList = $_TmpList | Foreach-Object { $_[0].InputObject }
+
+            Set-Content -Path "step-3-filtered-ip-list.txt" -Value $NewIPFilteredList
+
+            return $true
+
+        } else {
+            return $false
+        }
+    }
+    
 }
 
 # /////////////////////////////////////////////////////////////////////////////////////////////// #
@@ -519,10 +558,35 @@ while ($true) {
             break
         }
         3 {
-            Invoke-FilterIPAddresses
+            # new filtered IP address list
+            $FilteredIPAddressListNew = Invoke-FilterIPAddresses
+            
+            # compare new to existing and write to file
+            $status = Invoke-ProcessFilteredIPAddresses($FilteredIPAddressListNew)
+
+            if ($status -eq $false) {
+                # WARN if no new IP addresses to run ARIN lookup on
+                $NothingToLookupMessage = ("`n::: WARNING :::`n`n" +
+                    "No NEW IP addresses for ARIN lookup !`n" +
+                    "Running 'Step 4 - ARIN Lookup' will run on EXISTING data.`n" +
+                    "`n::: WARNING :::")
+
+                [Console]::ForegroundColor = "Red"
+                Write-Host $NothingToLookupMessage
+                
+                [Console]::ForegroundColor = "Yellow"
+                Read-Host "`nPress < ENTER > to confirm"
+            }
+
             break
         }
         4 {
+
+            # test
+            # $x = get-content "step-3-filtered-ip-list.txt"
+            # write-host $x
+            read-host "pause"
+            #
             $ArinAPIResponseList = Invoke-GetArinIPAddressInfo
             Invoke-WriteArinAPIResponseToFile -InputArray $ArinAPIResponseList
 
@@ -560,7 +624,20 @@ while ($true) {
             # 2
             Invoke-ParseFirewallLogs
             # 3
-            Invoke-FilterIPAddresses
+            $FilteredIPAddressListNew = Invoke-FilterIPAddresses
+            $status = Invoke-ProcessFilteredIPAddresses($FilteredIPAddressListNew)
+            if ($status -eq $false) {
+                # WARN if no new IP addresses to run ARIN lookup on
+                $NothingToLookupMessage = ("`n::: WARNING :::`n`n" +
+                    "No NEW IP addresses for ARIN lookup !`n" +
+                    "Waiting 30 sec before exiting...`n" +
+                    "`n::: WARNING :::")
+
+                [Console]::ForegroundColor = "Red"
+                Write-Host $NothingToLookupMessage
+                Start-Sleep(30)
+                return $false | Out-Null
+            }
             # 4
             $ArinAPIResponseList = Invoke-GetArinIPAddressInfo
             Invoke-WriteArinAPIResponseToFile -InputArray $ArinAPIResponseList
