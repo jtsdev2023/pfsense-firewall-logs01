@@ -374,25 +374,40 @@ function Invoke-ReadArinAPIInfoFromFile {
 function Invoke-ParseArinAPIResponse {
     param(
         [Parameter(Mandatory = $true)]
+        [AllowNull()]
         [Array]$InputArray
     )
 
-    # parse ARIN API JSON response
-    $ArinCidrAndNameList = Invoke-ParseArinCIDRBlock -InputArray $InputArray
+    $WarningMessage = ("`n::: WARNING :::`n`n" +
+                    "ARIN API response input list is NULL !`n" +
+                    "Verify that file `"step-4-arin-json-response.json`" exists.`n" +
+                    "Step 4 may need to be run!`n" +
+                    "`n::: WARNING :::")
 
-    if ($ArinCidrAndNameList.Count -eq 3) {
-        $ArinCustomObject = [PSCustomObject]@{
-            CIDR = $ArinCidrAndNameList[0]
-            LENGTH = $ArinCidrAndNameList[1]
-            NAME = $ArinCidrAndNameList[2]
-        }
-    } else {
+    if ($InputArray -eq $null) {
+        [Console]::ForegroundColor = "Red"
+        Write-Host $WarningMessage
+        Start-Sleep -Seconds 5
+
+        break
+
+    } elseif ($InputArray[0].GetType().Name -eq "PSCustomObject") {
+        # parse ARIN API JSON response
+        $ArinCidrAndNameList = Invoke-ParseArinCIDRBlock -InputArray $InputArray
         $ArinCustomObject = $ArinCidrAndNameList | ForEach-Object {
             [PSCustomObject]@{
                 CIDR = $_[0]
                 LENGTH = $_[1]
                 NAME = $_[2]
             }
+        }
+    } else {
+        # parse ARIN API JSON response
+        $ArinCidrAndNameList = Invoke-ParseArinCIDRBlock -InputArray $InputArray
+        $ArinCustomObject = [PSCustomObject]@{
+            CIDR = $ArinCidrAndNameList[0]
+            LENGTH = $ArinCidrAndNameList[1]
+            NAME = $ArinCidrAndNameList[2]
         }
     }
 
@@ -407,9 +422,16 @@ function Invoke-GetExistingArinCIDRBlockInfoFromCSVFile {
     # read processed ARIN CIDR block info from existing file
     param()
 
-    $ExistingArinCIDRBlockInfo = Import-Csv -Path "step-6-arin-cidr-list.csv"
+    # $ExistingArinCIDRBlockInfo = Import-Csv -Path "step-6-arin-cidr-list.csv"
+    # return $ExistingArinCIDRBlockInfo
 
-    return $ExistingArinCIDRBlockInfo
+    if ( (Test-Path -Path "step-6-arin-cidr-list.csv" ) -eq $true) {
+        $ExistingArinCIDRBlockInfo = Import-Csv -Path "step-6-arin-cidr-list.csv"
+
+        return $ExistingArinCIDRBlockInfo
+    } else {
+        return $null
+    }
 }
 
 
@@ -608,6 +630,8 @@ while ($true) {
 
             Invoke-WriteMergedArinCIDRBlockInfoToCSVFile -InputArray $MergedArinCIDRBlockInfo
 
+            read-host "pause"
+
             break
         }
         7 {
@@ -636,7 +660,7 @@ while ($true) {
 
                 [Console]::ForegroundColor = "Red"
                 Write-Host $NothingToLookupMessage
-                Start-Sleep(30)
+                Start-Sleep -Seconds 30
                 return $false | Out-Null
             }
             # 4
